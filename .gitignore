@@ -75,6 +75,7 @@ htmlcov/
 .tox/
 .hypothesis/
 __pycache__/
+CLAUDE.md
 
 # Node (if any)
 node_modules/

@@ -1,0 +1,90 @@
+[
+  {
+    "id": "medium_001",
+    "audio_path": "audio/weather_query.wav",
+    "ground_truth_text": "what is the weather like today",
+    "expected_response_type": "factual",
+    "duration_sec": 2.5,
+    "category": "medium",
+    "metadata": {
+      "difficulty": "medium"
+    }
+  },
+  {
+    "id": "medium_002",
+    "audio_path": "audio/how_are_you.wav",
+    "ground_truth_text": "how are you doing today",
+    "expected_response_type": "conversational",
+    "duration_sec": 2.2,
+    "category": "medium",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "medium_003",
+    "audio_path": "audio/medium_what's_the_wheather_like_today.wav",
+    "ground_truth_text": "what's the weather like today?",
+    "expected_response_type": "factual",
+    "duration_sec": 5.0,
+    "category": "medium",
+    "metadata": {
+      "difficulty": "medium"
+    }
+  },
+  {
+    "id": "medium_004",
+    "audio_path": "audio/medium_tell_me_a_joke.wav",
+    "ground_truth_text": "tell me a joke",
+    "expected_response_type": "command",
+    "duration_sec": 3.0,
+    "category": "medium",
+    "metadata": {
+      "difficulty": "medium"
+    }
+  },
+  {
+    "id": "medium_005",
+    "audio_path": "audio/medium_how_are_you_doing.wav",
+    "ground_truth_text": "how are you doing?",
+    "expected_response_type": "conversational",
+    "duration_sec": 3.0,
+    "category": "medium",
+    "metadata": {
+      "difficulty": "medium"
+    }
+  },
+  {
+    "id": "medium_006",
+    "audio_path": "audio/medium_what_can_you_do_for_me.wav",
+    "ground_truth_text": "what can you do for me?",
+    "expected_response_type": "factual",
+    "duration_sec": 3.0,
+    "category": "medium",
+    "metadata": {
+      "difficulty": "medium"
+    }
+  },
+  {
+    "id": "medium_007",
+    "audio_path": "audio/medium_set_a_timer_for_five_minutes.wav",
+    "ground_truth_text": "set a timer for five minutes",
+    "expected_response_type": "command",
+    "duration_sec": 3.0,
+    "category": "medium",
+    "metadata": {
+      "difficulty": "medium"
+    }
+  },
+  {
+    "id": "medium_008",
+    "audio_path": "audio/medium_what's_the_capital_of_france.wav",
+    "ground_truth_text": "what's the capital of france?",
+    "expected_response_type": "factual",
+    "duration_sec": 3.0,
+    "category": "medium",
+    "metadata": {
+      "difficulty": "medium"
+    }
+  }
+]

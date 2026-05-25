@@ -1,0 +1,55 @@
+{
+  "summary": {},
+  "stages": {
+    "smart_turn": {
+      "mean_ms": 354.04,
+      "median_ms": 200.72,
+      "p50_ms": 200.72,
+      "p95_ms": 776.3,
+      "p99_ms": 1757.7,
+      "std_ms": 434.86,
+      "min_ms": 31.75,
+      "max_ms": 2742.92,
+      "samples": 52,
+      "percentage": 0.4
+    },
+    "transcription": {
+      "mean_ms": 8233.46,
+      "median_ms": 8541.92,
+      "p50_ms": 8541.92,
+      "p95_ms": 10503.26,
+      "p99_ms": 10585.66,
+      "std_ms": 1921.31,
+      "min_ms": 4737.92,
+      "max_ms": 10606.26,
+      "samples": 19,
+      "percentage": 10.2
+    },
+    "llm_first_token": {
+      "mean_ms": 71806.59,
+      "median_ms": 73851.32,
+      "p50_ms": 73851.32,
+      "p95_ms": 105430.74,
+      "p99_ms": 116197.09,
+      "std_ms": 25447.1,
+      "min_ms": 12004.45,
+      "max_ms": 118888.68,
+      "samples": 19,
+      "percentage": 89.3
+    }
+  },
+  "bottlenecks": [
+    {
+      "stage": "llm_first_token",
+      "percentage": 89.3,
+      "mean_ms": 71806.59
+    }
+  ],
+  "recommendations": [
+    "#1 LLM first token is 89.3% of latency (71807ms). Consider: (a) KV cache optimization for conversation context reuse, (b) Speculative decoding with draft model, (c) GPU acceleration (CUDA/Metal/Vulkan), (d) Smaller model variant (E2B vs E4B)."
+  ],
+  "metadata": {
+    "total_utterances": 19,
+    "profiled_utterances": 0
+  }
+}

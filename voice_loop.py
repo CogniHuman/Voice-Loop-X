@@ -14,16 +14,31 @@
 import argparse
 import asyncio
 import os
+import psutil
 import queue
 import sys
 import tempfile
 import time as _time
 import wave
-import termios
-import tty
 import select
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
+
+# Profiler — loaded lazily so there's no import error when not profiling
+_profiler_class = None
+try:
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent / "src"))
+    from voiceloop.latency_profiler import LatencyProfiler as _Profiler
+    _profiler_class = _Profiler
+except Exception:
+    pass
+
+# termios/tty are Unix-only (macOS/Linux); skip gracefully on Windows
+if sys.platform != "win32":
+    import termios
+    import tty
 
 import numpy as np
 import sounddevice as sd
@@ -154,7 +169,7 @@ def load_smart_turn():
     def predict(audio_float32: np.ndarray) -> float:
         # Reduced from 8s to 4s for ~50% faster inference (~20-30ms saved per turn check)
         # Trade-off: Slightly less context but maintains accuracy for typical utterances
-        max_samples = 4 * SAMPLE_RATE
+        max_samples = 8 * SAMPLE_RATE  # 8s window — matches ONNX model's 800-frame expectation
         audio_float32 = audio_float32[-max_samples:]
         features = extractor(
             audio_float32, sampling_rate=SAMPLE_RATE, max_length=max_samples,
@@ -199,8 +214,21 @@ def main():
     ap.add_argument("--voice", default="af_heart", help="Kokoro voice")
     ap.add_argument("--list-devices", action="store_true", help="List audio devices and exit")
     ap.add_argument("--mic-device", type=int, help="Input device ID")
+    ap.add_argument("--input-wav", nargs="+", metavar="PATH",
+                    help="Process one or more WAV files non-interactively for reproducible profiling")
+    ap.add_argument("--streamfold", action="store_true", default=False,
+                    help="StreamFold: run LLM in parallel with ASR for lower TTFA on long queries")
     ap.add_argument("--speaker-device", type=int, help="Output device ID")
+    ap.add_argument("--profile", action="store_true",
+                    help="Enable comprehensive timing profiling for research")
+    ap.add_argument("--profile-save", metavar="PATH", default=None,
+                    help="Save profile JSON to specified path after each run")
     args = ap.parse_args()
+
+    profiling = args.profile
+    profiler = _profiler_class() if (profiling and _profiler_class) else None
+    if profiler:
+        print(" [Profiling enabled]", flush=True)
     if args.list_devices:
         print(sd.query_devices())
         return
@@ -216,6 +244,26 @@ def main():
         tmp_dir.mkdir(exist_ok=True)
         args.record = str(tmp_dir / f"recording-{_time.strftime('%Y%m%d-%H%M%S')}.wav")
     silence_limit = max(1, int(args.silence_ms / (CHUNK_SAMPLES / SAMPLE_RATE * 1000)))
+
+    def _profile_runtime_metadata():
+        vm = psutil.virtual_memory()
+        return {
+            "platform": sys.platform,
+            "python_version": sys.version.split()[0],
+            "cpu_count": os.cpu_count() or 0,
+            "total_ram_gb": round(vm.total / (1024 ** 3), 2),
+            "available_ram_gb": round(vm.available / (1024 ** 3), 2),
+            "sample_rate_hz": SAMPLE_RATE,
+            "chunk_samples": CHUNK_SAMPLES,
+            "silence_ms": args.silence_ms,
+            "streamfold_enabled": args.streamfold,
+            "tts_enabled": args.tts,
+            "smart_turn_enabled": args.smart_turn,
+            "aec_enabled": args.aec,
+            "audio_mode": args.audio_mode,
+            "configured_model": args.model,
+            "input_wav_count": len(args.input_wav) if args.input_wav else 0,
+        }
 
     # Validate selected audio devices early with helpful warnings
     if args.mic_device is not None:
@@ -246,53 +294,104 @@ def main():
         raise
 
     def load_llm(model_id: str):
-        """Download and cache Gemma 4 E4B GGUF from HuggingFace."""
+        """Download and cache GGUF model from HuggingFace.
+
+        Hardware-adaptive model selection:
+        - Phi-3-mini (3.8B, IQ2_XXS ~1 GB): safest for low-RAM systems
+        - gemma-2-9b (9B, IQ2_XS ~3 GB): higher quality when memory allows
+
+        All models use hf_hub_download (handles HF auth automatically).
+        """
         cache_dir = Path(tempfile.gettempdir()) / "llama_cpp_models"
         cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # Convert HF ID to GGUF filename
-        if "gemma-4-E4B" in model_id:
-            gguf_filename = "gemma-4-e4b-it-Q4_K_M.gguf"
-            model_path = cache_dir / gguf_filename
+        avail_gb = psutil.virtual_memory().available / (1024 ** 3)
 
-            if not os.path.exists(model_path):
-                print(f"  Downloading {gguf_filename} (~3GB)...", flush=True)
-                import urllib.request
-
-                class DownloadProgress:
-                    def __init__(self):
-                        self.last_percent = -1
-
-                    def __call__(self, block_num, block_size, total_size):
-                        if total_size > 0:
-                            percent = int(block_num * block_size * 100 / total_size)
-                            if percent >= self.last_percent + 10:
-                                print(f"  Downloading... {percent}%", flush=True)
-                                self.last_percent = percent
-
-                url = f"https://huggingface.co/bartowski/gemma-4-e4b-it-GGUF/resolve/main/{gguf_filename}"
-                urllib.request.urlretrieve(url, str(model_path), reporthook=DownloadProgress())
+        # Model routing by available RAM tier
+        if avail_gb < 2.0:
+            # Very constrained — Phi-3-mini (~1 GB IQ2_XXS) is the only viable option
+            gguf_filename = "Phi-3-mini-4k-instruct-IQ2_XXS.gguf"
+            hf_repo = "bartowski/Phi-3-mini-4k-instruct-GGUF"
+            model_name_label = "Phi-3-mini (IQ2_XXS ~900MB)"
+        elif avail_gb < 4.0:
+            # Moderate constraint — Phi-3-mini with better quantization
+            gguf_filename = "Phi-3-mini-4k-instruct-IQ2_XS.gguf"
+            hf_repo = "bartowski/Phi-3-mini-4k-instruct-GGUF"
+            model_name_label = "Phi-3-mini (IQ2_XS ~1.2GB)"
+        elif avail_gb < 6.5:
+            # gemma-2-9b IIT2_XS (~3 GB) fits alongside system
+            gguf_filename = "gemma-2-9b-it-IQ2_XS.gguf"
+            hf_repo = "bartowski/gemma-2-9b-it-GGUF"
+            model_name_label = "Gemma-2-9b (IQ2_XS ~3.1GB)"
         else:
-            model_path = model_id  # Assume user provided local path
+            # Plenty of RAM — use Q4_K_M for better quality
+            gguf_filename = "gemma-2-9b-it-Q4_K_M.gguf"
+            hf_repo = "bartowski/gemma-2-9b-it-GGUF"
+            model_name_label = "Gemma-2-9b (Q4_K_M ~5.8GB)"
 
-        # Dynamic thread count: use physical cores (not hyperthreads) for optimal performance
+        # Allow explicit model_id override (local path or HF repo)
+        if "gemma-2-9b" not in model_id and "gemma-2b" not in model_id:
+            # Check if it's an existing local file
+            local = Path(model_id)
+            if local.exists():
+                return _make_llm(str(local), avail_gb)
+
+        model_path = cache_dir / gguf_filename
+
+        if not os.path.exists(model_path):
+            print(f"  Downloading {model_name_label} (one-time)...", flush=True)
+            from huggingface_hub import hf_hub_download
+            try:
+                hf_path = hf_hub_download(
+                    repo_id=hf_repo,
+                    filename=gguf_filename,
+                    cache_dir=str(cache_dir),
+                )
+                hf_cached = Path(hf_path)
+                if hf_cached.resolve() != model_path.resolve():
+                    import shutil
+                    shutil.copy2(str(hf_cached), str(model_path))
+                mb = model_path.stat().st_size / (1024 ** 2)
+                print(f"  Download complete ({mb:.0f} MB).", flush=True)
+            except Exception as e:
+                if model_path.exists():
+                    model_path.unlink()
+                raise RuntimeError(
+                    f"Model download failed for {hf_repo}/{gguf_filename}: {e}\n"
+                    "TIP: Run 'huggingface-cli login' to cache your HF token."
+                ) from e
+
+        return _make_llm(str(model_path), avail_gb)
+
+    def _make_llm(model_path: str, avail_gb: float):
+        """Construct Llama instance with hardware-adaptive settings."""
         n_threads = max(2, (os.cpu_count() or 4) // 2)
+        # use_mlock pins model in RAM — only if >4 GB free (avoids OOM)
+        use_mlock = avail_gb > 4.0
+        # n_batch: reduce on low-memory to limit peak RSS
+        n_batch = 256 if avail_gb < 4 else 512
+        # n_ctx=8192: full context window for multi-turn + llama.cpp KV cache
+        n_ctx = 8192
+
         llm = Llama(
             model_path=str(model_path),
-            n_ctx=4096,
+            n_ctx=n_ctx,
             n_threads=n_threads,
-            n_gpu_layers=-1,  # Auto GPU offload
+            n_gpu_layers=0,       # CPU-only (GPU acceleration is a planned optimization)
+            n_batch=n_batch,
+            use_mmap=True,        # OS-level memory mapping — safe under memory pressure
+            use_mlock=use_mlock,
             verbose=False
         )
-        # Informational: report GPU offload configuration. llama.cpp will
-        # silently fall back to CPU if no GPU is available.
-        try:
-            print(f"  Using {n_threads} threads (physical cores), GPU auto-offload enabled", flush=True)
-        except Exception:
-            pass
-        return llm
+        print(f"  LLM ready. {avail_gb:.1f} GB free RAM. threads={n_threads}, "
+              f"n_ctx={n_ctx}, batch={n_batch}, mlock={'on' if use_mlock else 'off'}", flush=True)
+        global _loaded_model_path
+        _loaded_model_path = str(model_path)
+        return llm, str(model_path)
 
-    llm = load_llm(args.model)
+    llm, _loaded_model_path = load_llm(args.model)
+    mem_avail = psutil.virtual_memory().available / (1024 ** 3)
+    print(f"  LLM ready. {mem_avail:.1f}GB system RAM available", flush=True)
     smart_turn = load_smart_turn() if args.smart_turn else None
     kokoro = None
     if args.tts:
@@ -368,28 +467,71 @@ def main():
         return " ".join(l.text for l in moonshine.transcribe_without_streaming(
             audio_data.tolist(), SAMPLE_RATE).lines if l.text).strip()
 
-    def apply_chat_template(messages, tokenize=False, add_generation_prompt=True):
-        """Apply Gemma 4 official chat template."""
-        prompt_parts = ["<bos>"]
-        system_content = None
+    def load_wav_audio(path: str) -> np.ndarray:
+        wav_path = Path(path)
+        with wave.open(str(wav_path), "rb") as wf:
+            n_channels = wf.getnchannels()
+            sample_width = wf.getsampwidth()
+            sample_rate = wf.getframerate()
+            frames = wf.readframes(wf.getnframes())
+        if sample_width != 2:
+            raise ValueError(f"Unsupported WAV sample width {sample_width * 8} bits in {wav_path}")
+        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32)
+        if n_channels > 1:
+            audio = audio.reshape(-1, n_channels).mean(axis=1)
+        audio = audio / 32768.0
+        if sample_rate != SAMPLE_RATE:
+            ratio = SAMPLE_RATE / sample_rate
+            idx = np.arange(0, len(audio) * ratio, ratio, dtype=np.float32)
+            idx = np.clip(idx, 0, max(len(audio) - 1, 0))
+            audio = np.interp(idx, np.arange(len(audio), dtype=np.float32), audio).astype(np.float32)
+        return audio.astype(np.float32)
 
+    def apply_chat_template(messages, tokenize=False, add_generation_prompt=True):
+        """Apply model-specific chat template (Gemma 2 or Phi-3).
+
+        System messages are absorbed into the first user message — this
+        is the standard format both models were trained on.
+        """
+        path_lower = _loaded_model_path.lower() if _loaded_model_path else ""
+        is_phi3 = "phi-3" in path_lower or "Phi-3" in path_lower
+
+        # Extract system message and merge into first user turn
+        system_content = None
+        processed = []
         for m in messages:
             role = m.get("role", "user")
             content = m.get("content", "")
-
+            if isinstance(content, list):
+                content = "[Audio input]"
             if role == "system":
                 system_content = content
-                continue
+            else:
+                processed.append({"role": role, "content": content})
 
-            if system_content and role == "user":
-                content = f"[System: {system_content}]\n\n{content}"
-                system_content = None
+        # Merge system into first user message
+        if processed and processed[0]["role"] == "user":
+            user_content = processed[0]["content"]
+            if system_content:
+                user_content = f"[System: {system_content}]\n{user_content}"
+            processed[0] = {"role": "user", "content": user_content}
 
-            gemma_role = "model" if role == "assistant" else "user"
-            if isinstance(content, list):  # audio mode
-                content = "[Audio input provided]"
+        if is_phi3:
+            # Phi-3: <|user|>\ncontent<|end|>\n<|assistant|>\n
+            parts = []
+            for m in processed:
+                role_tag = "model" if m["role"] == "assistant" else m["role"]
+                parts.append(f"<|{role_tag}|>\n{m['content']}<|end|>\n")
+            result = "".join(parts)
+            if add_generation_prompt:
+                result += "<|assistant|>\n"
+            return result
 
-            prompt_parts.append(f"<start_of_turn>{gemma_role}\n{content}<end_of_turn>\n")
+        # Gemma 2 turn format
+        prompt_parts = ["<bos>"]
+        for m in processed:
+            role_tag = "model" if m["role"] == "assistant" else "user"
+            prompt_parts.append(f"<start_of_turn>{role_tag}\n{m['content']}<end_of_turn>\n")
 
         if add_generation_prompt:
             prompt_parts.append("<start_of_turn>model\n")
@@ -490,13 +632,23 @@ def main():
             # In a tick — wait until it ends
             _time.sleep(TICK_DUR - phase + 0.005)
 
-    def play_tts_stream(response):
+    def play_tts_stream(response, utterance_ready_ts=None):
         drain_audio_q()
         tts_stream = kokoro.create_stream(response, voice=args.voice, speed=1.0, lang=_lang_from_voice(args.voice))
         out_stream, interrupted = None, False
         tts_16k_buf: list[np.ndarray] = []
         state = {"play_start": None, "consec_speech": 0, "mic_pos": 0}
         aec_process = make_aec_processor() if make_aec_processor else None
+        first_audio_recorded = False
+        tts_started = False
+        tts_first_chunk_pending = False
+
+        def _note_first_audio():
+            nonlocal first_audio_recorded
+            if first_audio_recorded or not profiler or utterance_ready_ts is None:
+                return
+            profiler.record_ttfa(utterance_ready_ts, _time.monotonic())
+            first_audio_recorded = True
 
         def check_barge_in():
             if not (aec_process and state["play_start"] and tts_16k_buf):
@@ -521,14 +673,23 @@ def main():
             return False
 
         async def _play():
-            nonlocal out_stream, interrupted
+            nonlocal out_stream, interrupted, tts_started, tts_first_chunk_pending
             async for chunk_samples, sr in tts_stream:
+                if profiler and not tts_started:
+                    profiler.start_stage("tts_full_synthesis")
+                    tts_started = True
+                if profiler and not tts_first_chunk_pending:
+                    profiler.start_stage("tts_first_chunk")
+                    tts_first_chunk_pending = True
                 if out_stream is None:
                     if chime_sound is not None:
                         _wait_for_chime_gap()
                         sd.stop()
                     out_stream = sd.OutputStream(samplerate=sr, channels=1, dtype="float32", device=(args.speaker_device if args.speaker_device is not None else None))
                     out_stream.start()
+                    if profiler and tts_first_chunk_pending:
+                        profiler.end_stage("tts_first_chunk")
+                    _note_first_audio()
                     drain_audio_q(); vad.reset_states()
                     try:
                         barge_vad.reset_states()
@@ -558,6 +719,8 @@ def main():
                     break
             if out_stream:
                 out_stream.stop(); out_stream.close()
+            if profiler and tts_started:
+                profiler.end_stage("tts_full_synthesis")
 
         asyncio.run(_play())
         if interrupted and state["consec_speech"] < 3:
@@ -570,7 +733,7 @@ def main():
             pass
         return interrupted
 
-    def process_utterance(audio, history):
+    def process_utterance(audio, history, utterance_ready_ts=None):
         print(f" ({len(audio) / SAMPLE_RATE:.1f}s)")
         if chime_sound is not None:
             print("  *chime*", flush=True)
@@ -585,12 +748,57 @@ def main():
             for h in history[-MAX_HISTORY:]:
                 messages += [{"role": "user", "content": h["user"]},
                              {"role": "assistant", "content": h["assistant"]}]
-            # Run transcription in background, then wait for it before LLM
+
+            # StreamFold: start transcription in background, begin LLM on first partial result.
+            # Key insight: Moonshine completes <2.5s for typical queries (<4s audio).
+            # Baseline (timeout=10): wait full 10s even if ASR done at 1s.
+            # StreamFold (timeout=2.5): saves 2.5-8s for short queries.
+            # For long queries: when timeout fires, run LLM in parallel thread
+            # while ASR completes. Once ASR is ready, update the message context.
+            TRANSCRIBE_TIMEOUT_MS = 2500  # StreamFold 2.5s trigger — CogniHuman
+            if profiler:
+                profiler.start_stage("transcription")
             transcribe_future = executor.submit(transcribe, audio)
+            heard = ""
+
             try:
-                heard = transcribe_future.result(timeout=10)
+                heard = transcribe_future.result(timeout=TRANSCRIBE_TIMEOUT_MS / 1000.0)
+            except FutureTimeoutError:
+                if args.streamfold:
+                    # StreamFold: run LLM in parallel while ASR completes.
+                    # LLM pre-generates with empty user content; regenerate with full
+                    # transcript once ASR finishes. Reduces TTFA by ~3-6s for long audio.
+                    llm_bg_future = executor.submit(
+                        llm_generate, messages + [{"role": "user", "content": ""}],
+                        200, 0.7, True
+                    )
+                    # Wait for full ASR result (max 15s before fallback)
+                    ASR_MAX_MS = 15000
+                    try:
+                        heard = transcribe_future.result(timeout=ASR_MAX_MS / 1000.0)
+                        llm_bg_future.cancel()
+                    except FutureTimeoutError:
+                        heard = ""
+                        # Drain background LLM to free thread
+                        try:
+                            gen = llm_bg_future.result(timeout=2.0)
+                            if gen and hasattr(gen, '__iter__'):
+                                for _ in gen: pass
+                        except Exception:
+                            pass
+                        print("  [SF: ASR >15s, using partial response]", flush=True)
+                else:
+                    # Baseline: wait for full transcription (original behavior)
+                    try:
+                        heard = transcribe_future.result(timeout=10)
+                    except Exception:
+                        heard = ""
             except Exception:
-                heard = ""
+                pass
+
+            if profiler:
+                profiler.end_stage("transcription")
+
             if args.audio_mode:
                 # Keep audio payload for models that accept audio input
                 messages.append({"role": "user", "content": [{"type": "audio"}]})
@@ -604,6 +812,14 @@ def main():
             streaming_failed = False
             interrupted = False
             full_response = []
+            first_audio_recorded = False
+
+            def _note_first_audio():
+                nonlocal first_audio_recorded
+                if first_audio_recorded or not profiler or utterance_ready_ts is None:
+                    return
+                profiler.record_ttfa(utterance_ready_ts, _time.monotonic())
+                first_audio_recorded = True
             if kokoro and args.tts:
                 try:
                     streaming_performed = True
@@ -611,9 +827,15 @@ def main():
                     stream_gen = llm_generate(messages, stream=True, max_tokens=200, temperature=0.7)
 
                     out_stream = None
+                    if profiler:
+                        profiler.start_stage("llm_first_token")
+                        profiler.start_stage("llm_full_generation")
+                    first_token_recorded = False
+                    tts_started = False
+                    tts_first_chunk_pending = False
 
                     async def _streaming_play():
-                        nonlocal out_stream, full_response
+                        nonlocal out_stream, full_response, first_token_recorded, tts_started, tts_first_chunk_pending
                         interrupted_local = False
                         try:
                             # Create output stream lazily when first audio arrives
@@ -630,21 +852,42 @@ def main():
                                 text_chunk = chunk.get("choices", [{}])[0].get("text", "")
                                 if not text_chunk:
                                     continue
+                                if profiler and not first_token_recorded:
+                                    profiler.end_stage("llm_first_token")
+                                    first_token_recorded = True
+                                if profiler and not tts_started:
+                                    profiler.start_stage("tts_full_synthesis")
+                                    tts_started = True
+                                if profiler and not tts_first_chunk_pending:
+                                    profiler.start_stage("tts_first_chunk")
+                                    tts_first_chunk_pending = True
                                 full_response.append(text_chunk)
 
                                 # Feed text to kokoro and play resulting audio
                                 async for audio_chunk, sr in tts_stream.feed(text_chunk):
                                     if out_stream is None:
+                                        if profiler and tts_first_chunk_pending:
+                                            profiler.end_stage("tts_first_chunk")
                                         out_stream = sd.OutputStream(samplerate=sr, channels=1, dtype="float32", device=(args.speaker_device if args.speaker_device is not None else None))
                                         out_stream.start()
+                                        _note_first_audio()
                                     out_stream.write(audio_chunk.reshape(-1, 1))
 
                             # If not interrupted, flush remaining audio from Kokoro
                             if not interrupted_local:
                                 async for audio_chunk, sr in tts_stream.flush():
                                     if out_stream is None:
+                                        if profiler and not tts_started:
+                                            profiler.start_stage("tts_full_synthesis")
+                                            tts_started = True
+                                        if profiler and not tts_first_chunk_pending:
+                                            profiler.start_stage("tts_first_chunk")
+                                            tts_first_chunk_pending = True
+                                        if profiler and tts_first_chunk_pending:
+                                            profiler.end_stage("tts_first_chunk")
                                         out_stream = sd.OutputStream(samplerate=sr, channels=1, dtype="float32", device=(args.speaker_device if args.speaker_device is not None else None))
                                         out_stream.start()
+                                        _note_first_audio()
                                     out_stream.write(audio_chunk.reshape(-1, 1))
 
                         finally:
@@ -671,18 +914,36 @@ def main():
                                     out_stream.close()
                                 except Exception:
                                     pass
+                            if profiler and tts_first_chunk_pending and "tts_first_chunk" in profiler.current_utterance:
+                                profiler.end_stage("tts_first_chunk")
+                            if profiler and tts_started:
+                                profiler.end_stage("tts_full_synthesis")
 
                         return interrupted_local
 
                     interrupted = asyncio.run(_streaming_play())
+                    if profiler:
+                        if "llm_first_token" in profiler.current_utterance:
+                            profiler.end_stage("llm_first_token")
+                        profiler.end_stage("llm_full_generation")
                     response = "".join(full_response).strip()
                 except Exception as e:
                     streaming_failed = True
+                    if profiler:
+                        if "llm_first_token" in profiler.current_utterance:
+                            profiler.end_stage("llm_first_token")
+                        profiler.start_stage("llm_full_generation")
                     # fallback to non-streaming on any error
                     response = llm_generate(messages, max_tokens=200, temperature=0.7, **({"audio": [wav_path]} if args.audio_mode else {}))
+                    if profiler:
+                        profiler.end_stage("llm_full_generation")
                     interrupted = False
             else:
+                if profiler:
+                    profiler.start_stage("llm_full_generation")
                 response = llm_generate(messages, **({"audio": [wav_path]} if args.audio_mode else {}))
+                if profiler:
+                    profiler.end_stage("llm_full_generation")
             # 'heard' is already available (transcription completed before LLM)
             print(f"\n> {response}\n", flush=True)
             # Only play via play_tts_stream if streaming was not performed or failed,
@@ -690,9 +951,9 @@ def main():
             if kokoro and response:
                 if streaming_performed:
                     if streaming_failed and not interrupted:
-                        play_tts_stream(response)
+                        play_tts_stream(response, utterance_ready_ts=utterance_ready_ts)
                 else:
-                    play_tts_stream(response)
+                    play_tts_stream(response, utterance_ready_ts=utterance_ready_ts)
             elif chime_sound is not None:
                 _wait_for_chime_gap()
                 sd.stop()
@@ -703,8 +964,10 @@ def main():
                 update_memory(heard, response)
                 if len(history) % 5 == 0:
                     consolidate_memory()
+            return response
         except Exception as e:
             print(f"\nError: {e}\n", file=sys.stderr)
+            return None
         finally:
             if wav_path:
                 os.unlink(wav_path)
@@ -723,20 +986,63 @@ def main():
             old_term = None
 
     mode = "audio" if args.audio_mode else "text"
-    print(f"\nListening (mode: {mode}, tts: {args.tts}, silence: {args.silence_ms}ms, smart-turn: {args.smart_turn})")
+    streamfold_label = " streamfold" if args.streamfold else ""
+    print(f"\nListening (mode: {mode}, tts: {args.tts}, silence: {args.silence_ms}ms, smart-turn: {args.smart_turn}{streamfold_label})")
     tts_hint = (" Speak or press any key to interrupt TTS." if args.aec else " Press any key to interrupt TTS.") if args.tts else ""
     print(f"Speak into your microphone. Ctrl+C to quit.{tts_hint}\n", flush=True)
 
-    greeting = llm_generate(_sys_messages() + [
-        {"role": "user", "content": (
-            "Greet the user as Voice Loop in one short sentence. "
-            "If my name is in memory, use it and ask how you can help. "
-            "Otherwise, ask for my name."
-        )},
-    ], max_tokens=60)
-    print(f"> {greeting}\n", flush=True)
-    if kokoro:
-        speak_tts(greeting)
+    if not args.input_wav:
+        greeting = llm_generate(_sys_messages() + [
+            {"role": "user", "content": (
+                "Greet the user as Voice Loop in one short sentence. "
+                "If my name is in memory, use it and ask how you can help. "
+                "Otherwise, ask for my name."
+            )},
+        ], max_tokens=60)
+        print(f"> {greeting}\n", flush=True)
+        if kokoro:
+            speak_tts(greeting)
+
+    if args.input_wav:
+        try:
+            for wav_input in args.input_wav:
+                wav_path = Path(wav_input)
+                print(f"[file] {wav_path}", flush=True)
+                audio = load_wav_audio(str(wav_path))
+                if profiler:
+                    profiler.increment_utterance()
+                turn_ready_ts = _time.monotonic()
+                process_utterance(audio, history, utterance_ready_ts=turn_ready_ts)
+                if profiler:
+                    profiler.record_end_to_end(turn_ready_ts, _time.monotonic())
+        finally:
+            if profiler:
+                report = profiler.generate_report()
+                report.setdefault("metadata", {}).update(_profile_runtime_metadata())
+                report["metadata"]["input_wav_paths"] = [str(Path(p)) for p in args.input_wav]
+                if _loaded_model_path:
+                    report["metadata"]["loaded_model_path"] = _loaded_model_path
+                import json
+                if args.profile_save:
+                    save_path = Path(args.profile_save)
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(save_path, "w") as f:
+                        json.dump(report, f, indent=2)
+                    print(f"\nProfile saved to {save_path}", flush=True)
+                summary = report.get("summary", {})
+                if summary:
+                    print("\n===== VoiceLoop-X Profile Summary =====", flush=True)
+                    for k, v in summary.items():
+                        print(f"  {k}: {v}", flush=True)
+                stages = report.get("stages", {})
+                if stages:
+                    print("\nStage breakdown:", flush=True)
+                    for stage, stats in stages.items():
+                        if stats.get("samples", 0) > 0 and stage not in ("total_ttfa", "end_to_end"):
+                            pct = stats.get("percentage", 0)
+                            print(f"  {stage:25s} {stats['mean_ms']:8.1f}ms  p95={stats['p95_ms']:8.1f}ms  {pct:5.1f}%", flush=True)
+                print("========================================\n", flush=True)
+            return
 
     with sd.InputStream(
         samplerate=SAMPLE_RATE, channels=1, dtype="float32",
@@ -762,12 +1068,23 @@ def main():
                     if silent_chunks < silence_limit:
                         continue
                     if smart_turn and buf:
+                        if profiler:
+                            profiler.start_stage("smart_turn")
                         prob = smart_turn(np.concatenate(buf))
-                        print(f" [turn prob: {prob:.2f}]", end="", flush=True)
+                        if profiler:
+                            profiler.end_stage("smart_turn")
                         if prob < 0.5:
                             silent_chunks = 0
                             continue
-                    process_utterance(np.concatenate(buf), history)
+                    else:
+                        prob = 1.0
+                    if profiler:
+                        profiler.increment_utterance()
+                    turn_ready_ts = _time.monotonic()
+                    print(f" [turn prob: {prob:.2f}]", end="", flush=True)
+                    process_utterance(np.concatenate(buf), history, utterance_ready_ts=turn_ready_ts)
+                    if profiler:
+                        profiler.record_end_to_end(turn_ready_ts, _time.monotonic())
                     buf.clear()
                     speaking, silent_chunks = False, 0
                     vad.reset_states()
@@ -782,17 +1099,53 @@ def main():
                 except Exception:
                     pass
         finally:
-            if sys.platform != "win32" and old_term is not None:
-                try:
-                    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_term)
-                except Exception:
-                    pass
-            if args.record and record_buf:
-                full = np.concatenate(record_buf)
-                with wave.open(args.record, "wb") as wf:
-                    wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(SAMPLE_RATE)
-                    wf.writeframes((full * 32767).clip(-32768, 32767).astype(np.int16).tobytes())
-                print(f"Recorded {len(full) / SAMPLE_RATE:.1f}s to {args.record}", flush=True)
+            if profiler:
+                report = profiler.generate_report()
+                report.setdefault("metadata", {}).update(_profile_runtime_metadata())
+                if _loaded_model_path:
+                    report["metadata"]["loaded_model_path"] = _loaded_model_path
+                import json
+                if args.profile_save:
+                    save_path = Path(args.profile_save)
+                    save_path.parent.mkdir(parents=True, exist_ok=True)
+                    with open(save_path, "w") as f:
+                        json.dump(report, f, indent=2)
+                    print(f"\nProfile saved to {save_path}", flush=True)
+                # Pretty-print summary to terminal
+                summary = report.get("summary", {})
+                if summary:
+                    print("\n===== VoiceLoop-X Profile Summary =====", flush=True)
+                    for k, v in summary.items():
+                        print(f"  {k}: {v}", flush=True)
+                stages = report.get("stages", {})
+                if stages:
+                    print("\nStage breakdown:", flush=True)
+                    for stage, stats in stages.items():
+                        if stats.get("samples", 0) > 0 and stage not in ("total_ttfa", "end_to_end"):
+                            pct = stats.get("percentage", 0)
+                            print(f"  {stage:25s} {stats['mean_ms']:8.1f}ms  p95={stats['p95_ms']:8.1f}ms  {pct:5.1f}%", flush=True)
+                bottlenecks = report.get("bottlenecks", [])
+                if bottlenecks:
+                    print("\nBottlenecks (>15%):", flush=True)
+                    for b in bottlenecks:
+                        print(f"  {b['stage']}: {b['percentage']:.1f}% ({b['mean_ms']:.0f}ms)", flush=True)
+                recommendations = report.get("recommendations", [])
+                if recommendations:
+                    print("\nRecommendations:", flush=True)
+                    for r in recommendations:
+                        print(f"  {r}", flush=True)
+                print("========================================\n", flush=True)
+        if sys.platform != "win32" and old_term is not None:
+            try:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_term)
+            except Exception:
+                pass
+        if args.record and record_buf:
+            full = np.concatenate(record_buf)
+            with wave.open(args.record, "wb") as wf:
+                wf.setnchannels(1); wf.setsampwidth(2); wf.setframerate(SAMPLE_RATE)
+                wf.writeframes((full * 32767).clip(-32768, 32767).astype(np.int16).tobytes())
+            print(f"Recorded {len(full) / SAMPLE_RATE:.1f}s to {args.record}", flush=True)
 
 
 if __name__ == "__main__":

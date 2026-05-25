@@ -1,0 +1,89 @@
+{
+  "summary": {
+    "experiment_type": "frontend_partial_baseline",
+    "utterance_count": 3,
+    "mean_smart_turn_ms": 233.62,
+    "mean_transcription_ms": 141.52,
+    "primary_bottleneck": "smart_turn"
+  },
+  "stages": {
+    "smart_turn": {
+      "mean_ms": 233.62,
+      "median_ms": 68.36,
+      "p50_ms": 68.36,
+      "p95_ms": 530.88,
+      "p99_ms": 571.99,
+      "std_ms": 246.64,
+      "min_ms": 50.24,
+      "max_ms": 582.27,
+      "samples": 3,
+      "percentage": 62.3
+    },
+    "transcription": {
+      "mean_ms": 141.52,
+      "median_ms": 96.6,
+      "p50_ms": 96.6,
+      "p95_ms": 258.7,
+      "p99_ms": 273.11,
+      "std_ms": 97.37,
+      "min_ms": 51.24,
+      "max_ms": 276.71,
+      "samples": 3,
+      "percentage": 37.7
+    }
+  },
+  "bottlenecks": [
+    {
+      "stage": "smart_turn",
+      "percentage": 62.3,
+      "mean_ms": 233.62
+    },
+    {
+      "stage": "transcription",
+      "percentage": 37.7,
+      "mean_ms": 141.52
+    }
+  ],
+  "recommendations": [
+    "#1 Smart Turn is 62.3% of latency (234ms). Consider: (a) Reducing window size (currently 4s, try 3s or 2s), (b) Caching Whisper features, (c) Adaptive window based on utterance length.",
+    "#2 Transcription is 37.7% of latency (142ms). Consider: (a) Streaming ASR with partial results, (b) Smaller Moonshine model, (c) GPU acceleration, (d) Start LLM with partial transcription."
+  ],
+  "metadata": {
+    "total_utterances": 3,
+    "profiled_utterances": 0,
+    "experiment_type": "frontend_partial_baseline",
+    "platform": "win32",
+    "python_version": "3.13.0",
+    "cpu_count": 12,
+    "total_ram_gb": 7.72,
+    "available_ram_gb": 0.65,
+    "input_count": 3,
+    "input_paths": [
+      "data\\test_cases\\audio\\hello.wav",
+      "data\\test_cases\\audio\\medium_tell_me_a_joke.wav",
+      "data\\test_cases\\audio\\long_can_you_explain_how_photosynthesis_works.wav"
+    ],
+    "llm_runtime_blocked": true,
+    "notes": "Frontend-only baseline because llama-cpp-python is not currently installable on this host Python 3.13 setup."
+  },
+  "per_file": [
+    {
+      "path": "data\\test_cases\\audio\\hello.wav",
+      "duration_sec": 0.8,
+      "smart_turn_probability": 0.7358,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\medium_tell_me_a_joke.wav",
+      "duration_sec": 3.0,
+      "smart_turn_probability": 0.1183,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\long_can_you_explain_how_photosynthesis_works.wav",
+      "duration_sec": 6.0,
+      "smart_turn_probability": 0.9283,
+      "transcript": ""
+    }
+  ]
+}

@@ -1,0 +1,123 @@
+[
+  {
+    "id": "short_001",
+    "audio_path": "audio/what_time.wav",
+    "ground_truth_text": "what time is it",
+    "expected_response_type": "factual",
+    "duration_sec": 1.2,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_002",
+    "audio_path": "audio/hello.wav",
+    "ground_truth_text": "hello",
+    "expected_response_type": "conversational",
+    "duration_sec": 0.8,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_003",
+    "audio_path": "audio/thank_you.wav",
+    "ground_truth_text": "thank you",
+    "expected_response_type": "conversational",
+    "duration_sec": 1.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_004",
+    "audio_path": "audio/short_what_time_is_it.wav",
+    "ground_truth_text": "what time is it?",
+    "expected_response_type": "factual",
+    "duration_sec": 2.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_005",
+    "audio_path": "audio/short_hello.wav",
+    "ground_truth_text": "hello",
+    "expected_response_type": "conversational",
+    "duration_sec": 1.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_006",
+    "audio_path": "audio/short_thank_you.wav",
+    "ground_truth_text": "thank you",
+    "expected_response_type": "conversational",
+    "duration_sec": 2.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_007",
+    "audio_path": "audio/short_good_bye.wav",
+    "ground_truth_text": "goodbye",
+    "expected_response_type": "conversational",
+    "duration_sec": 3.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_008",
+    "audio_path": "audio/short_yes.wav",
+    "ground_truth_text": "yes",
+    "expected_response_type": "conversational",
+    "duration_sec": 1.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_009",
+    "audio_path": "audio/short_no.wav",
+    "ground_truth_text": "no",
+    "expected_response_type": "conversational",
+    "duration_sec": 2.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_010",
+    "audio_path": "audio/short_help_me.wav",
+    "ground_truth_text": "help me",
+    "expected_response_type": "command",
+    "duration_sec": 2.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  },
+  {
+    "id": "short_011",
+    "audio_path": "audio/short_stop.wav",
+    "ground_truth_text": "stop",
+    "expected_response_type": "command",
+    "duration_sec": 2.0,
+    "category": "short",
+    "metadata": {
+      "difficulty": "easy"
+    }
+  }
+]

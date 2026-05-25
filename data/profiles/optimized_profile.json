@@ -1,0 +1,61 @@
+{
+  "summary": {},
+  "stages": {
+    "smart_turn": {
+      "mean_ms": 1971.98,
+      "median_ms": 185.44,
+      "p50_ms": 185.44,
+      "p95_ms": 7610.79,
+      "p99_ms": 19286.89,
+      "std_ms": 5026.36,
+      "min_ms": 34.81,
+      "max_ms": 22205.91,
+      "samples": 19,
+      "percentage": 6.3
+    },
+    "transcription": {
+      "mean_ms": 8071.33,
+      "median_ms": 10052.97,
+      "p50_ms": 10052.97,
+      "p95_ms": 10735.54,
+      "p99_ms": 10985.84,
+      "std_ms": 2635.17,
+      "min_ms": 4259.17,
+      "max_ms": 11048.42,
+      "samples": 9,
+      "percentage": 25.9
+    },
+    "llm_first_token": {
+      "mean_ms": 21148.66,
+      "median_ms": 17658.37,
+      "p50_ms": 17658.37,
+      "p95_ms": 36292.79,
+      "p99_ms": 36332.41,
+      "std_ms": 9859.35,
+      "min_ms": 8424.6,
+      "max_ms": 36342.31,
+      "samples": 9,
+      "percentage": 67.8
+    }
+  },
+  "bottlenecks": [
+    {
+      "stage": "llm_first_token",
+      "percentage": 67.8,
+      "mean_ms": 21148.66
+    },
+    {
+      "stage": "transcription",
+      "percentage": 25.9,
+      "mean_ms": 8071.33
+    }
+  ],
+  "recommendations": [
+    "#1 LLM first token is 67.8% of latency (21149ms). Consider: (a) KV cache optimization for conversation context reuse, (b) Speculative decoding with draft model, (c) GPU acceleration (CUDA/Metal/Vulkan), (d) Smaller model variant (E2B vs E4B).",
+    "#2 Transcription is 25.9% of latency (8071ms). Consider: (a) Streaming ASR with partial results, (b) Smaller Moonshine model, (c) GPU acceleration, (d) Start LLM with partial transcription."
+  ],
+  "metadata": {
+    "total_utterances": 9,
+    "profiled_utterances": 0
+  }
+}

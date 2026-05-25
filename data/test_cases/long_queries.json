@@ -1,0 +1,57 @@
+[
+  {
+    "id": "long_001",
+    "audio_path": "audio/complex_question.wav",
+    "ground_truth_text": "can you explain the difference between machine learning and deep learning in simple terms",
+    "expected_response_type": "factual",
+    "duration_sec": 5.5,
+    "category": "long",
+    "metadata": {
+      "difficulty": "hard"
+    }
+  },
+  {
+    "id": "long_002",
+    "audio_path": "audio/long_can_you_explain_how_photosynthesis_works.wav",
+    "ground_truth_text": "can you explain how photosynthesis works?",
+    "expected_response_type": "factual",
+    "duration_sec": 6.0,
+    "category": "long",
+    "metadata": {
+      "difficulty": "hard"
+    }
+  },
+  {
+    "id": "long_003",
+    "audio_path": "audio/long_what_are_the_main_differences_between_python_javascript.wav",
+    "ground_truth_text": "what are the main differences between python and javascript?",
+    "expected_response_type": "factual",
+    "duration_sec": 5.0,
+    "category": "long",
+    "metadata": {
+      "difficulty": "hard"
+    }
+  },
+  {
+    "id": "long_004",
+    "audio_path": "audio/long_tell_me_about_the_history_of_artificial_intelligence.wav",
+    "ground_truth_text": "tell me about the history of artificial intelligence",
+    "expected_response_type": "command",
+    "duration_sec": 5.0,
+    "category": "long",
+    "metadata": {
+      "difficulty": "hard"
+    }
+  },
+  {
+    "id": "long_005",
+    "audio_path": "audio/long_how_do_i_make_chocolate_chip_cookies_from_scratch.wav",
+    "ground_truth_text": "how do i make chocolate chip cookies from scratch?",
+    "expected_response_type": "factual",
+    "duration_sec": 5.0,
+    "category": "long",
+    "metadata": {
+      "difficulty": "hard"
+    }
+  }
+]

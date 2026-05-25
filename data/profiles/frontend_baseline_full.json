@@ -1,0 +1,234 @@
+{
+  "summary": {
+    "experiment_type": "frontend_partial_baseline",
+    "utterance_count": 23,
+    "mean_smart_turn_ms": 228.03,
+    "mean_transcription_ms": 466.4,
+    "primary_bottleneck": "transcription"
+  },
+  "stages": {
+    "smart_turn": {
+      "mean_ms": 228.03,
+      "median_ms": 150.18,
+      "p50_ms": 150.18,
+      "p95_ms": 780.94,
+      "p99_ms": 1217.34,
+      "std_ms": 273.79,
+      "min_ms": 117.59,
+      "max_ms": 1321.22,
+      "samples": 23,
+      "percentage": 32.8
+    },
+    "transcription": {
+      "mean_ms": 466.4,
+      "median_ms": 83.65,
+      "p50_ms": 83.65,
+      "p95_ms": 874.94,
+      "p99_ms": 6385.38,
+      "std_ms": 1599.15,
+      "min_ms": 26.35,
+      "max_ms": 7918.2,
+      "samples": 23,
+      "percentage": 67.2
+    }
+  },
+  "bottlenecks": [
+    {
+      "stage": "transcription",
+      "percentage": 67.2,
+      "mean_ms": 466.4
+    },
+    {
+      "stage": "smart_turn",
+      "percentage": 32.8,
+      "mean_ms": 228.03
+    }
+  ],
+  "recommendations": [
+    "#1 Transcription is 67.2% of latency (466ms). Consider: (a) Streaming ASR with partial results, (b) Smaller Moonshine model, (c) GPU acceleration, (d) Start LLM with partial transcription.",
+    "#2 Smart Turn is 32.8% of latency (228ms). Consider: (a) Reducing window size (currently 4s, try 3s or 2s), (b) Caching Whisper features, (c) Adaptive window based on utterance length."
+  ],
+  "metadata": {
+    "total_utterances": 23,
+    "profiled_utterances": 0,
+    "experiment_type": "frontend_partial_baseline",
+    "platform": "win32",
+    "python_version": "3.13.0",
+    "cpu_count": 12,
+    "total_ram_gb": 7.72,
+    "available_ram_gb": 0.59,
+    "input_count": 23,
+    "input_paths": [
+      "data\\test_cases\\audio\\how_are_you.wav",
+      "data\\test_cases\\audio\\long_can_you_explain_how_photosynthesis_works.wav",
+      "data\\test_cases\\audio\\long_how_do_i_make_chocolate_chip_cookies_from_scratch.wav",
+      "data\\test_cases\\audio\\long_tell_me_about_the_history_of_artificial_intelligence.wav",
+      "data\\test_cases\\audio\\long_what_are_the_main_differences_between_python_javascript.wav",
+      "data\\test_cases\\audio\\medium_how_are_you_doing.wav",
+      "data\\test_cases\\audio\\medium_set_a_timer_for_five_minutes.wav",
+      "data\\test_cases\\audio\\medium_tell_me_a_joke.wav",
+      "data\\test_cases\\audio\\medium_what's_the_capital_of_france.wav",
+      "data\\test_cases\\audio\\medium_what's_the_weather_like_today.wav",
+      "data\\test_cases\\audio\\medium_what's_the_wheather_like_today.wav",
+      "data\\test_cases\\audio\\medium_what_can_you_do_for_me.wav",
+      "data\\test_cases\\audio\\short_good_bye.wav",
+      "data\\test_cases\\audio\\short_hello.wav",
+      "data\\test_cases\\audio\\short_help_me.wav",
+      "data\\test_cases\\audio\\short_no.wav",
+      "data\\test_cases\\audio\\short_stop.wav",
+      "data\\test_cases\\audio\\short_thank_you.wav",
+      "data\\test_cases\\audio\\short_what_time_is_it.wav",
+      "data\\test_cases\\audio\\short_yes.wav",
+      "data\\test_cases\\audio\\thank_you.wav",
+      "data\\test_cases\\audio\\weather_query.wav",
+      "data\\test_cases\\audio\\what_time.wav"
+    ],
+    "warmup_count": 2,
+    "warmup_paths": [
+      "data\\test_cases\\audio\\complex_question.wav",
+      "data\\test_cases\\audio\\hello.wav"
+    ],
+    "llm_runtime_blocked": true,
+    "notes": "Frontend-only baseline because llama-cpp-python is not currently installable on this host Python 3.13 setup."
+  },
+  "per_file": [
+    {
+      "path": "data\\test_cases\\audio\\how_are_you.wav",
+      "duration_sec": 2.2,
+      "smart_turn_probability": 0.1771,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\long_can_you_explain_how_photosynthesis_works.wav",
+      "duration_sec": 6.0,
+      "smart_turn_probability": 0.9283,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\long_how_do_i_make_chocolate_chip_cookies_from_scratch.wav",
+      "duration_sec": 5.0,
+      "smart_turn_probability": 0.8643,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\long_tell_me_about_the_history_of_artificial_intelligence.wav",
+      "duration_sec": 5.0,
+      "smart_turn_probability": 0.8643,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\long_what_are_the_main_differences_between_python_javascript.wav",
+      "duration_sec": 5.0,
+      "smart_turn_probability": 0.8643,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\medium_how_are_you_doing.wav",
+      "duration_sec": 3.0,
+      "smart_turn_probability": 0.1183,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\medium_set_a_timer_for_five_minutes.wav",
+      "duration_sec": 3.0,
+      "smart_turn_probability": 0.1183,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\medium_tell_me_a_joke.wav",
+      "duration_sec": 3.0,
+      "smart_turn_probability": 0.1183,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\medium_what's_the_capital_of_france.wav",
+      "duration_sec": 3.0,
+      "smart_turn_probability": 0.1183,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\medium_what's_the_weather_like_today.wav",
+      "duration_sec": 5.016,
+      "smart_turn_probability": 0.954,
+      "transcript": "Art the weather. Like Today"
+    },
+    {
+      "path": "data\\test_cases\\audio\\medium_what's_the_wheather_like_today.wav",
+      "duration_sec": 5.0,
+      "smart_turn_probability": 0.8643,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\medium_what_can_you_do_for_me.wav",
+      "duration_sec": 3.0,
+      "smart_turn_probability": 0.1183,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\short_good_bye.wav",
+      "duration_sec": 3.0,
+      "smart_turn_probability": 0.1183,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\short_hello.wav",
+      "duration_sec": 1.0,
+      "smart_turn_probability": 0.5972,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\short_help_me.wav",
+      "duration_sec": 2.0,
+      "smart_turn_probability": 0.1889,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\short_no.wav",
+      "duration_sec": 2.0,
+      "smart_turn_probability": 0.1889,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\short_stop.wav",
+      "duration_sec": 2.0,
+      "smart_turn_probability": 0.1889,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\short_thank_you.wav",
+      "duration_sec": 2.0,
+      "smart_turn_probability": 0.1889,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\short_what_time_is_it.wav",
+      "duration_sec": 2.0,
+      "smart_turn_probability": 0.1889,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\short_yes.wav",
+      "duration_sec": 1.0,
+      "smart_turn_probability": 0.5972,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\thank_you.wav",
+      "duration_sec": 1.0,
+      "smart_turn_probability": 0.5972,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\weather_query.wav",
+      "duration_sec": 2.5,
+      "smart_turn_probability": 0.1659,
+      "transcript": ""
+    },
+    {
+      "path": "data\\test_cases\\audio\\what_time.wav",
+      "duration_sec": 1.2,
+      "smart_turn_probability": 0.3386,
+      "transcript": ""
+    }
+  ]
+}

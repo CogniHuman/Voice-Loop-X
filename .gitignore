@@ -1,0 +1,86 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Model caches and downloaded files
+llama_cpp_models/         # GGUF model downloads (large binaries)
+kokoro_tts/               # Kokoro TTS model downloads
+smart_turn_v3/            # Smart Turn model downloads
+*.gguf                    # Model files (large)
+*.onnx                     # ONNX models (large)
+*.bin                      # Binary model weights
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.pkl                     # Python pickle files or caches
+data/derived/
+data/profiles/*_local.json
+test_*.json
+
+# Environment and secrets
+.env
+.env.local
+.secrets
+
+# Python package build artifacts
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Test outputs
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+__pycache__/
+
+# Node (if any)
+node_modules/
+package-lock.json
+ yarn.lock
+
+# OS
+.DS_Store
+Thumbs.db
